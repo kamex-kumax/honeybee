@@ -37,7 +37,7 @@ Provided by Ladybug 0.0.45
 
 ghenv.Component.Name = "Honeybee_Write INP Geometry"
 ghenv.Component.NickName = 'Write INP'
-ghenv.Component.Message = 'VER 0.0.62\nJAN_20_2018'
+ghenv.Component.Message = 'VER 0.0.63\nJAN_20_2018'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "Honeybee"
 ghenv.Component.SubCategory = "13 | WIP"
