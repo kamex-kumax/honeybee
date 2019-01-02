@@ -36,7 +36,7 @@ along with Honeybee; If not, see <http://www.gnu.org/licenses/>.
 Source code is available at: https://github.com/mostaphaRoudsari/Honeybee
 
 -
-Provided by Honeybee 0.0.63
+Provided by Honeybee 0.0.64
     
     Args:
         defaultFolder_: Optional input for Honeybee default folder.
@@ -47,7 +47,7 @@ Provided by Honeybee 0.0.63
 
 ghenv.Component.Name = "Honeybee_Honeybee"
 ghenv.Component.NickName = 'Honeybee'
-ghenv.Component.Message = 'VER 0.0.63\nNOV_12_2018'
+ghenv.Component.Message = 'VER 0.0.64\nDEC_05_2018'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.icon
 ghenv.Component.Category = "Honeybee"
 ghenv.Component.SubCategory = "00 | Honeybee"
@@ -5755,7 +5755,22 @@ class hb_reEvaluateHBZones(object):
             insetPts.append(newPt)
         
         return insetPts
-            
+    
+    def isAntiClockWise(self, pts, faceNormal):
+        
+        def crossProduct(vector1, vector2):
+            return vector1.X * vector2.X + vector1.Y * vector2.Y + vector1.Z * vector2.Z
+        
+        # check if the order if clock-wise
+        vector0 = rc.Geometry.Vector3d(pts[1]- pts[0])
+        vector1 = rc.Geometry.Vector3d(pts[-1]- pts[0])
+        ptsNormal = rc.Geometry.Vector3d.CrossProduct(vector0, vector1)
+        
+        # in case points are anti-clockwise then normals should be parallel
+        if crossProduct(ptsNormal, faceNormal) > 0:
+            return True
+        return False
+    
     def checkChildSurfaces(self, surface, pointOrient = 'LowerLeftCorner'):
         def isRectangle(ptList):
             vector1 = rc.Geometry.Vector3d(ptList[0] - ptList[1])
@@ -5770,32 +5785,16 @@ class hb_reEvaluateHBZones(object):
             else:
                 return True
         
-        def isAntiClockWise(pts, faceNormal):
-            
-            def crossProduct(vector1, vector2):
-                return vector1.X * vector2.X + vector1.Y * vector2.Y + vector1.Z * vector2.Z
-            
-            # check if the order if clock-wise
-            vector0 = rc.Geometry.Vector3d(pts[1]- pts[0])
-            vector1 = rc.Geometry.Vector3d(pts[-1]- pts[0])
-            ptsNormal = rc.Geometry.Vector3d.CrossProduct(vector0, vector1)
-            
-            # in case points are anti-clockwise then normals should be parallel
-            if crossProduct(ptsNormal, faceNormal) > 0:
-                return True
-            return False
-        
         # get glaing coordinates- coordinates will be returned as lists of lists
         glzCoordinates = surface.extractGlzPoints(False, 2, pointOrient)
         
-        # make sure order is right
-        #if not isAntiClockWise(surface.coordinatesList, surface.normalVector):
-        #        surface.coordinatesList.reverse()
-
-        
-        for coorList in glzCoordinates:
-            if not isAntiClockWise(coorList, surface.normalVector):
+        # check that the coordinates are going anticlockwise.
+        for i, coorList in enumerate(glzCoordinates):
+            if not self.isAntiClockWise(coorList, surface.normalVector):
+                # reverse the list of coordinates
                 coorList.reverse()
+                # Shift the list by 1 to make sure that the starting point is still in the correct corner (ie. LowerLeft).
+                glzCoordinates[i] = coorList[-1:] + coorList[:-1]
         
         glzSrfs = []
         if surface.isPlanar:
@@ -5822,6 +5821,7 @@ class hb_reEvaluateHBZones(object):
                     
                     # create glazing surface
                     HBGlzSrf = self.createSubGlzSurfaceFromBaseSrf(child, surface, glzSurfaceName, count, coordinates)
+                    HBGlzSrf.normalVector = surface.normalVector
                     
                     # create adjacent glazingin case needed
                     if surface.BC.upper() == 'SURFACE':
@@ -5959,6 +5959,12 @@ class hb_reEvaluateHBZones(object):
         
         # case 0 : it is a planar surface so it is all fine
         if not hasattr(coordinatesL[0], '__iter__'):
+            if not self.isAntiClockWise(coordinatesL, surface.normalVector):
+                # reverse the list of coordinates
+                coordinatesL.reverse()
+                # Shift the list by 1 to make sure that the starting point is still in the correct corner (ie. LowerLeft).
+                coordinatesL = coordinatesL[-1:] + coordinatesL[:-1]
+            
             # it is a single surface so just let it go to the modified list
             surface.coordinates = coordinatesL
             self.modifiedSrfsNames.append(surface.name)
@@ -9658,7 +9664,7 @@ if checkIn.letItFly:
         
         
         # Check for an installation of THERM.
-        THERMVersions = ["7.5","7.6"]
+        THERMVersions = ["7.5", "7.6"]
         THERMVersion = ''
         THERMSettingsFile = ''
         if folders.THERMPath != None:
@@ -9688,7 +9694,8 @@ if checkIn.letItFly:
         if folders.THERMPath == None:
             msg= "Honeybee cannot find a compatible LBNL THERM installation on your system.\n" + \
              "You won't be able to run THERM simulations of heat flow through constructions.\n" + \
-             "You need THERM version 7.5 or above and you can download it from here:"
+             "Only the following versions of THERM are supported: {}".format(THERMVersions) + \
+             "\nDownload supported versions of THERM from:"
             msg2 = "https://windows.lbl.gov/software/therm"
             ghenv.Component.AddRuntimeMessage(w, msg)
             ghenv.Component.AddRuntimeMessage(w, msg2)

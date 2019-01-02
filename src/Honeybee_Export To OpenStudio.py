@@ -25,7 +25,7 @@ Use this component to export HBZones into an OpenStudio file, and run them throu
 _
 The component outputs the report from the simulation, the file path of the IDF file, and the CSV result file from the EnergyPlus run, and two other result files that record outputs in different formats.
 -
-Provided by Honeybee 0.0.63
+Provided by Honeybee 0.0.64
     
     Args:
         north_: Input a vector to be used as a true North direction for the energy simulation or a number between 0 and 360 that represents the degrees off from the y-axis to make North.  The default North direction is set to the Y-axis (0 degrees).
@@ -71,7 +71,7 @@ Provided by Honeybee 0.0.63
 
 ghenv.Component.Name = "Honeybee_Export To OpenStudio"
 ghenv.Component.NickName = 'exportToOpenStudio'
-ghenv.Component.Message = 'VER 0.0.63\nNOV_10_2018'
+ghenv.Component.Message = 'VER 0.0.64\nDEC_10_2018'
 ghenv.Component.IconDisplayMode = ghenv.Component.IconDisplayMode.application
 ghenv.Component.Category = "Honeybee"
 ghenv.Component.SubCategory = "10 | Energy | Energy"
@@ -1948,37 +1948,56 @@ class WriteOPS(object):
                     for surface in space.surfaces:
                         srfConstruction = surface.construction().get()
                         constrName = str(srfConstruction.name())
-                        materialNames, comments, UVSI, UVIP = self.hb_EPMaterialAUX.decomposeEPCnstr(constrName)
-                        if 'INTERNAL SOURCE' in str(materialNames).upper():
-                            customRadFound = True
-                            try:
-                                surface.setConstruction(radConstructions[constrName])
-                            except:
-                                # create an empty vector to collect the materials
-                                layers = []
-                                sourceLoc = 1
-                                for count, materialName in enumerate(materialNames):
-                                    # check if the material has been already produced
-                                    if materialName.upper() == 'INTERNAL SOURCE':
-                                        sourceLoc = count
-                                    elif not self.isMaterialInLib(materialName):
-                                        # create an openstudio material for EP material
-                                        OSMaterial = self.getOSMaterial(materialName, model)
-                                        layers.append(OSMaterial)
-                                        self.addMaterialToLib(materialName, OSMaterial)
-                                    else:
-                                        # material has been already created so let's just use it
-                                        layers.append(self.getMaterialFromLib(materialName))
-                                
-                                materials = ops.MaterialVector()
-                                for OSMaterial in layers:
-                                    materials.Add(OSMaterial)
-                                radiantSrf = ops.ConstructionWithInternalSource(model)
-                                radiantSrf.setName(constrName)
-                                radiantSrf.setLayers(materials)
-                                radiantSrf.setSourcePresentAfterLayerNumber(sourceLoc)
-                                surface.setConstruction(radiantSrf)
-                                radConstructions[constrName] = radiantSrf
+                        if not  '_REVERSED' in constrName:
+                            materialNames, comments, UVSI, UVIP = self.hb_EPMaterialAUX.decomposeEPCnstr(constrName)
+                            if 'INTERNAL SOURCE' in str(materialNames).upper():
+                                customRadFound = True
+                                adjacentSrf = None
+                                if surface.adjacentSurface().is_initialized():
+                                    adjacentSrf = surface.adjacentSurface().get()
+                                try:
+                                    surface.setConstruction(radConstructions[constrName])
+                                    if adjacentSrf is not None:
+                                        adjacentSrf.setConstruction(radConstructions[constrName + '_REVERSED'])
+                                except:
+                                    # create an empty vector to collect the materials
+                                    layers = []
+                                    sourceLoc = 1
+                                    for count, materialName in enumerate(materialNames):
+                                        # check if the material has been already produced
+                                        if materialName.upper() == 'INTERNAL SOURCE':
+                                            sourceLoc = count
+                                        elif not self.isMaterialInLib(materialName):
+                                            # create an openstudio material for EP material
+                                            OSMaterial = self.getOSMaterial(materialName, model)
+                                            layers.append(OSMaterial)
+                                            self.addMaterialToLib(materialName, OSMaterial)
+                                        else:
+                                            # material has been already created so let's just use it
+                                            layers.append(self.getMaterialFromLib(materialName))
+                                    
+                                    materials = ops.MaterialVector()
+                                    for OSMaterial in layers:
+                                        materials.Add(OSMaterial)
+                                    radiantSrf = ops.ConstructionWithInternalSource(model)
+                                    radiantSrf.setName(constrName)
+                                    radiantSrf.setLayers(materials)
+                                    radiantSrf.setSourcePresentAfterLayerNumber(sourceLoc)
+                                    surface.setConstruction(radiantSrf)
+                                    radConstructions[constrName] = radiantSrf
+                                    
+                                    if adjacentSrf is not None:
+                                        sourceLoc_rev = len(layers) - sourceLoc
+                                        materials_rev = ops.MaterialVector()
+                                        layers.reverse()
+                                        for OSMaterial in layers:
+                                            materials_rev.Add(OSMaterial)
+                                        radiantSrf_rev = ops.ConstructionWithInternalSource(model)
+                                        radiantSrf_rev.setName(constrName + '_REVERSED')
+                                        radiantSrf_rev.setLayers(materials_rev)
+                                        radiantSrf_rev.setSourcePresentAfterLayerNumber(sourceLoc_rev)
+                                        adjacentSrf.setConstruction(radiantSrf_rev)
+                                        radConstructions[constrName+ '_REVERSED'] = radiantSrf_rev
             if 'WSHP' in equipList:
                 # create water source heat pump and attach to heat pump loop
                 # create fan
@@ -4942,7 +4961,7 @@ class RunOPS(object):
         idfFilePath = tryGetOSPath(os.path.join(projectFolder, "ModelToIdf", "in.idf"))
         
         forwardTranslator = ops.EnergyPlusForwardTranslator()
-        workspace = forwardTranslator.translateModel(self.model)
+        workspace = forwardTranslator.translateModel(ops.Model.load(osmPath).get())
         
         # remove the current object
         tableStyleObjects = workspace.getObjectsByType(ops.IddObjectType("OutputControl_Table_Style"))
@@ -5273,7 +5292,7 @@ def tryGetOSPath(path):
         return ops.Path(ospath)
 
 
-def main(HBZones, HBContext, north, epwWeatherFile, analysisPeriod, simParameters, simulationOutputs, OSMeasures, runIt, openOpenStudio, workingDir = "C:\ladybug", fileName = "openStudioModel.osm"):
+def main(HBZones, HVACSystem, HBContext, north, epwWeatherFile, analysisPeriod, simParameters, simulationOutputs, OSMeasures, runIt, openOpenStudio, workingDir = "C:\ladybug", fileName = "openStudioModel.osm"):
     # check the release
     w = gh.GH_RuntimeMessageLevel.Warning
     
@@ -5587,7 +5606,9 @@ def main(HBZones, HBContext, north, epwWeatherFile, analysisPeriod, simParameter
         measureApplied =  True
     
     # save the model
-    model.save(tryGetOSPath(fname), True)
+    if model.save(tryGetOSPath(fname), True):
+        if HVACSystem != None:
+            HVACSystem.SaveHVAC(fname)
     print "Model saved to: " + fname
     workingDir, fileName = os.path.split(fname)
     projectName = (".").join(fileName.split(".")[:-1])
@@ -5646,7 +5667,7 @@ def main(HBZones, HBContext, north, epwWeatherFile, analysisPeriod, simParameter
     return fname, None, None, originalWorkDir, model
 
 if _HBZones and _HBZones[0]!=None and _epwWeatherFile and _writeOSM and openStudioIsReady:
-    results = main(_HBZones, HBContext_, north_, _epwWeatherFile,
+    results = main(_HBZones, HVACSystem_, HBContext_, north_, _epwWeatherFile,
                   _analysisPeriod_, _energySimPar_, simulationOutputs_, OSMeasures_,
                   runSimulation_, openOpenStudio_, workingDir_, fileName_)
     if results!=-1:
